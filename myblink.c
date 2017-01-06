@@ -15,6 +15,9 @@
 #include <stdio.h>
 #include <unistd.h>
 
+#include "tm1638.h"
+#include "usart.h"
+
 int _write(int file, char *ptr, int len);
 /*
  * playing around
@@ -60,7 +63,7 @@ static void stl_putchar(char c) {
    stl.up_head = next_head;
 }
 
-int _write(int file, char *ptr, int len) {
+int _x_write(int file, char *ptr, int len) {
    int i;
 
    if (file == STDOUT_FILENO || file == STDERR_FILENO) {
@@ -179,10 +182,10 @@ static void timer2_setup(void) {
    timer_set_mode(TIM2, TIM_CR1_CKD_CK_INT,
                   TIM_CR1_CMS_EDGE, TIM_CR1_DIR_UP);
 
-   timer_set_prescaler(TIM2, 35); // 72MHz / 36 -> 2MHz
+   timer_set_prescaler(TIM2, 8); // 72MHz / 9 -> 8MHz
    timer_continuous_mode(TIM2);
    timer_set_counter(TIM2, 0);
-   timer_set_period(TIM2, 3);  // -> 2MHz / 4
+   timer_set_period(TIM2, 7999);  // -> 8MHz / 8K = 1KHz
    timer_set_dma_on_update_event(TIM2);
 
    // Update DMA Request enable (no timer IRQ's...)
@@ -254,6 +257,9 @@ static void buffer_setup(void) {
 
 
 int main(void) {
+   uint32_t i=0,k;
+   char buff[10];
+
    rcc_clock_setup_in_hse_8mhz_out_72mhz();
    systick_setup();
 
@@ -266,10 +272,27 @@ int main(void) {
 //   cm_enable_interrupts(); // needs cm3/cortex.h
 //   cm_disable_faults();
 
+   tm1638_init();
+   usart_init();
+   printf("booting done...\n");
+
    while(1) {
       gpio_toggle(GPIOC, GPIO13);
       delay(500);
-      //printf("free ops: %lu\n", minops);
+
+      memset(buff, 0, sizeof(buff));
+
+      k = tm1638_read_keys();
+      printf("loop %d: keys=%d\n", i, k);
+      if (k != 0) {
+          snprintf(buff,9,"%06x", k);
+      } else {
+          snprintf(buff, 9, "%d", i);
+      }
+      tm1638_clear();
+      tm1638_put_string(0, buff);
+      tm1638_set_led(i, i>>3);
+      i++;
    }
 }
 
