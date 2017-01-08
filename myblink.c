@@ -255,10 +255,26 @@ static void buffer_setup(void) {
    timer_enable_counter(TIM2);
 }
 
+#define KEY_PREV 1
+#define KEY_PAR1 2
+#define KEY_PAR2 4
+#define KEY_PAR3 8
+#define KEY_PAR4 16
+#define KEY_PAR5 32
+#define KEY_PAR6 64
+#define KEY_NEXT 128
+#define LED_PAR1 1
+#define LED_PAR2 2
+#define LED_PAR3 3
+#define LED_PAR4 4
+#define LED_PAR5 5
+#define LED_PAR6 6
 
 int main(void) {
-   uint32_t i=0,k;
+   unsigned int i=0,k;
    char buff[10];
+   int parselect = 0;
+   int pars[6] = {1,2,3,4,5,6};
 
    rcc_clock_setup_in_hse_8mhz_out_72mhz();
    systick_setup();
@@ -278,21 +294,49 @@ int main(void) {
 
    while(1) {
       gpio_toggle(GPIOC, GPIO13);
-      delay(500);
+      delay(200);
+
+      k = tm1638_read_keys();
+      if (parselect) {
+          if (((k & KEY_PREV)>0) && (pars[parselect-1] > 0)) {
+              pars[parselect-1]--;
+          }
+          if (((k & KEY_NEXT)>0) && (pars[parselect-1] < 10)) {
+              pars[parselect-1]++;
+          }
+      }
+
+      if (k & 0x7e)
+          tm1638_set_led(parselect, 0);
+
+      if (k == 0x81) {
+          tm1638_set_led(parselect, 0);
+          parselect = 0;
+      }
+
+      if (k & KEY_PAR1) {
+          parselect = 1;
+      } else if (k & KEY_PAR2) {
+          parselect = 2;
+      } else if (k & KEY_PAR3) {
+          parselect = 3;
+      } else if (k & KEY_PAR4) {
+          parselect = 4;
+      } else if (k & KEY_PAR5) {
+          parselect = 5;
+      } else if (k & KEY_PAR6) {
+          parselect = 6;
+      }
 
       memset(buff, 0, sizeof(buff));
 
-      k = tm1638_read_keys();
-      printf("loop %d: keys=%d\n", i, k);
-      if (k != 0) {
-          snprintf(buff,9,"%06x", k);
+      if (parselect) {
+          snprintf(buff, 8, "Par%d:%u   ", parselect, pars[parselect-1]);
+          tm1638_put_string(0, buff);
+          tm1638_set_led(parselect, 1);
       } else {
-          snprintf(buff, 9, "%d", i);
+          tm1638_put_string(0, "Pulser   ");
       }
-      tm1638_clear();
-      tm1638_put_string(0, buff);
-      tm1638_set_led(i, i>>3);
-      i++;
    }
 }
 
