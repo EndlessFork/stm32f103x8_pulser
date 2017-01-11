@@ -1,259 +1,52 @@
+// vim: set fileencoding=utf-8 :
+/*****************************************************************************
+ *  This program is free software: you can redistribute it and/or modify
+ *  it under the terms of the GNU General Public License as published by
+ *  the Free Software Foundation, either version 2 of the License, or
+ *  (at your option) any later version.
+ *
+ *  This program is distributed in the hope that it will be useful,
+ *  but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU General Public License for more details.
+ *
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ *  Dieses Programm ist Freie Software: Sie können es unter den Bedingungen
+ *  der GNU General Public License, wie von der Free Software Foundation,
+ *  Version 2 der Lizenz oder (nach Ihrer Wahl) jeder neueren
+ *  veröffentlichten Version, weiterverbreiten und/oder modifizieren.
+ *
+ *  Dieses Programm wird in der Hoffnung, dass es nützlich sein wird, aber
+ *  OHNE JEDE GEWÄHRLEISTUNG, bereitgestellt; sogar ohne die implizite
+ *  Gewährleistung der MARKTFÄHIGKEIT oder EIGNUNG FÜR EINEN BESTIMMTEN ZWECK.
+ *  Siehe die GNU General Public License für weitere Details.
+ *
+ *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
+ *  Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>.
+ *
+ *  Copyright (C) 2016 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
+ *
+ *****************************************************************************/
 
 #include <stdint.h>
 #include <inttypes.h>
-#include <libopencm3/stm32/rcc.h>
-#include <libopencm3/stm32/gpio.h>
-#include <libopencm3/stm32/timer.h>
-#include <libopencm3/stm32/dma.h>
-#include <libopencm3/stm32/flash.h>
-
-#include <libopencm3/cm3/cortex.h>
-#include <libopencm3/cm3/nvic.h>
-#include <libopencm3/cm3/systick.h>
 
 #include <errno.h>
 #include <stdio.h>
 #include <unistd.h>
 
+#include "delay.h"
 #include "tm1638.h"
 #include "usart.h"
+#include "pattern.h"
+#include "ticker.h"
 
-int _write(int file, char *ptr, int len);
-/*
- * playing around
- */
+#include "ui.h"
 
-void hard_fault_handler(void){
-   reset_handler();
-}
-
-/*
- * stlinky
- */
-#define STLINKY_MAGIC 0xDEADF00D
-#define STLINKY_BUFSIZE 256
-typedef struct stlinky {
-   uint32_t magic;
-   uint32_t bufsize;
-   uint32_t up_tail;
-   uint32_t up_head;
-   uint32_t dwn_tail;
-   uint32_t dwn_head;
-   char upbuff[STLINKY_BUFSIZE];
-   char dwnbuff[STLINKY_BUFSIZE];
-} __attribute__ ((packed)) stlinky_t;
-
-volatile stlinky_t stl = {
-   .magic = STLINKY_MAGIC,
-   .bufsize = STLINKY_BUFSIZE,
-   .up_tail = 0,
-   .up_head = 0,
-   .dwn_tail = 0,
-   .dwn_head = 0,
-};
-
-static void stl_putchar(char c) {
-   uint32_t next_head;
-   next_head = (stl.up_head +1) % STLINKY_BUFSIZE;
-   // wait for buffer space
-//   while (next_head == stl.up_tail) ;
-   if (next_head ==stl.up_tail)
-      return; // no DBG frontend, eat messages....
-   stl.upbuff[stl.up_head] = c;
-   stl.up_head = next_head;
-}
-
-int _x_write(int file, char *ptr, int len) {
-   int i;
-
-   if (file == STDOUT_FILENO || file == STDERR_FILENO) {
-      for (i = 0; i < len; i++) {
-         stl_putchar(ptr[i]);
-      }
-      return i;
-   }
-   errno = EIO;
-   return -1;
-}
-
-
-/*
- * delay via systick (1KHz)
- */
-volatile uint32_t systick_millis = 0;
-volatile uint32_t systick_delay_ctr = 0;
-
-void sys_tick_handler(void) {
-   systick_millis++;
-   if (systick_delay_ctr)
-      systick_delay_ctr--;
-}
-
-uint32_t minops = 0xffffffff;
-
-static void delay(uint32_t ms) {
-   uint32_t target = systick_millis + ms;
-   uint32_t ops = 0;
-   while (systick_millis != target) {
-      asm("nop");
-      ops++;
-   }
-   if (ops < minops) {
-      minops = ops;
-   }
-}
-
-static void systick_setup(void) {
-   systick_set_reload(72000);
-   systick_set_clocksource(STK_CSR_CLKSOURCE_AHB);
-   systick_counter_enable();
-   systick_interrupt_enable();
-}
-
-// FROM: https://de.wikipedia.org/wiki/Xorshift
-uint32_t x = 123456789;
-uint32_t y = 362436069;
-uint32_t z = 521288629;
-uint32_t w = 88675123;
-uint32_t xorshift128(void) {
-
-  uint32_t t = x ^ (x << 11);
-  x = y; y = z; z = w;
-  w ^= (w >> 19) ^ t ^ (t >> 8);
-
-  return w;
-}
-
-/* WAVEPATTERNGENERATOR
- *
- * we use timer2 to generate basic timing
- * and a dma channels to transfer data to PA0..PA7
- * also use half-transfer interrupt to calculate (over) next block
- */
-
-#define HALF_BUFFER_SIZE 8192
-
-uint8_t buffer[2][HALF_BUFFER_SIZE]; // two buffers of 8K each
-
-static int8_t calc_buffer_ctr = 0;
-
-static void calc_buffer(int half) {
-   uint32_t i, t;
-   uint8_t *p = buffer[half];
-   for(i = 0; i < HALF_BUFFER_SIZE; i++) {
-      t = xorshift128() >> 1;
-      t &= (t >> 16);
-      t &= (t >> 8);
-      *p++ = t & (uint32_t) p;
-   }
-   // mark refclock if old enough
-   if (!calc_buffer_ctr) {
-      buffer[half][0] |= 128;
-      calc_buffer_ctr = 2;
-   } else calc_buffer_ctr--;
-}
-
-static void gpio_setup(void) {
-   rcc_periph_clock_enable(RCC_GPIOA);
-//   rcc_periph_clock_enable(RCC_GPIOB);
-   rcc_periph_clock_enable(RCC_GPIOC);
-
-   // PA0..7 -> Pulses via DMA
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO0);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO1);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO2);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO3);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO4);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO5);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO6);
-   gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_10_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO7);
-
-   // PC13 -> LED
-   gpio_set_mode(GPIOC, GPIO_MODE_OUTPUT_2_MHZ, GPIO_CNF_OUTPUT_PUSHPULL, GPIO13);
-
-}
-
-static void timer2_setup(void) {
-   rcc_periph_clock_enable(RCC_TIM2);
-
-   timer_reset(TIM2);
-
-   timer_disable_preload(TIM2);
-   timer_set_mode(TIM2, TIM_CR1_CKD_CK_INT,
-                  TIM_CR1_CMS_EDGE, TIM_CR1_DIR_UP);
-
-   timer_set_prescaler(TIM2, 8); // 72MHz / 9 -> 8MHz
-   timer_continuous_mode(TIM2);
-   timer_set_counter(TIM2, 0);
-   timer_set_period(TIM2, 7999);  // -> 8MHz / 8K = 1KHz
-   timer_set_dma_on_update_event(TIM2);
-
-   // Update DMA Request enable (no timer IRQ's...)
-   timer_enable_irq(TIM2, TIM_DIER_UDE);
-
-   timer_generate_event(TIM2, 1); // set UG bit
-}
-
-
-static void dma_setup(void) {
-   rcc_periph_clock_enable(RCC_DMA1);
-
-   // Channel 2 is triggered by timer2 overflow
-   dma_channel_reset(DMA1, DMA_CHANNEL2);
-   dma_disable_channel(DMA1, DMA_CHANNEL2);
-   dma_set_priority(DMA1, DMA_CHANNEL2, DMA_CCR_PL_VERY_HIGH);
-   dma_set_memory_size(DMA1, DMA_CHANNEL2, DMA_CCR_MSIZE_8BIT);
-   dma_set_peripheral_size(DMA1, DMA_CHANNEL2, DMA_CCR_PSIZE_8BIT);
-   dma_enable_memory_increment_mode(DMA1, DMA_CHANNEL2);
-   dma_disable_peripheral_increment_mode(DMA1, DMA_CHANNEL2);
-   dma_enable_circular_mode(DMA1, DMA_CHANNEL2);
-   dma_set_read_from_memory(DMA1, DMA_CHANNEL2);
-   dma_set_peripheral_address(DMA1, DMA_CHANNEL2, (uint32_t) & GPIOA_ODR);
-   dma_set_memory_address(DMA1, DMA_CHANNEL2, (uint32_t) & buffer);
-   dma_set_number_of_data(DMA1, DMA_CHANNEL2, 2*HALF_BUFFER_SIZE);
-
-   dma_enable_half_transfer_interrupt(DMA1, DMA_CHANNEL2);
-   dma_enable_transfer_complete_interrupt(DMA1, DMA_CHANNEL2);
-   nvic_enable_irq(NVIC_DMA1_CHANNEL2_IRQ);
-   // no enable_channel yet!
-}
-
-void dma1_channel2_isr(void) {
-   if (dma_get_interrupt_flag(DMA1, DMA_CHANNEL2, DMA_HTIF)) {
-      // half transfer interrupt -> re-calculate first block
-      dma_clear_interrupt_flags(DMA1, DMA_CHANNEL2, DMA_HTIF | DMA_GIF);
-      calc_buffer(0);
-   } else
-   if (dma_get_interrupt_flag(DMA1, DMA_CHANNEL2, DMA_TCIF)) {
-      // transfer complete interrupt -> recalculate second block + re-enable dma
-      dma_clear_interrupt_flags(DMA1, DMA_CHANNEL2, DMA_TCIF | DMA_GIF);
-      dma_disable_channel(DMA1, DMA_CHANNEL2);
-      dma_enable_channel(DMA1, DMA_CHANNEL2);
-      calc_buffer(1);
-   }
-}
-
-static void buffer_setup(void) {
-   int i, ctr = 0, mask;
-   calc_buffer(0);
-   calc_buffer(1);
-   //printf("buffer initialized\n");
-   // DBG: output buffer pattern analysis
-/*   for (i=0;i<HALF_BUFFER_SIZE;i++) {
-      for(mask=0x40;mask;mask >>= 1) {
-         if (buffer[0][i] & mask) ctr++;
-         if (buffer[1][i] & mask) ctr++;
-      }
-   }
-   printf("starting with %d pulses/frame\n", ctr*3); /**/
-
-   dma_setup();
-   //printf("dma ready\n");
-   timer2_setup();
-   //printf("timer ready\n");
-   dma_enable_channel(DMA1, DMA_CHANNEL2);
-   timer_enable_counter(TIM2);
-}
+#define VERSION1 " Pulser "
+#define VERSION2 "0.1-rc-1"
 
 #define KEY_PREV 1
 #define KEY_PAR1 2
@@ -270,73 +63,133 @@ static void buffer_setup(void) {
 #define LED_PAR5 5
 #define LED_PAR6 6
 
-int main(void) {
-   unsigned int i=0,k;
-   char buff[10];
-   int parselect = 0;
-   int pars[6] = {1,2,3,4,5,6};
-
-   rcc_clock_setup_in_hse_8mhz_out_72mhz();
-   systick_setup();
-
-   //printf("systick ok\n");
-   gpio_setup();
-   //printf("gpio ok\n");
-   buffer_setup();
-   //printf("buffer ok\n");
-
-//   cm_enable_interrupts(); // needs cm3/cortex.h
-//   cm_disable_faults();
-
+void ui_init(void) {
    tm1638_init();
-   usart_init();
-   printf("booting done...\n");
+}
 
-   while(1) {
-      gpio_toggle(GPIOC, GPIO13);
-      delay(200);
+static uint8_t selected_pattern;
+static int8_t selected_param=-1; // which param to display
+static unsigned int selected_ticker_ticks; // one tick is 1/72MHz
+static unsigned int selected_events; // events per second for generic pattern
+static uint8_t last_key;
 
-      k = tm1638_read_keys();
-      if (parselect) {
-          if (((k & KEY_PREV)>0) && (pars[parselect-1] > 0)) {
-              pars[parselect-1]--;
-          }
-          if (((k & KEY_NEXT)>0) && (pars[parselect-1] < 10)) {
-              pars[parselect-1]++;
-          }
-      }
+// patterns 0..15 have 2 params : ticker_ticks, frame_length
+// pattern 16 is dynamic mode: single channel/7channel, events/channel*frame
 
-      if (k & 0x7e)
-          tm1638_set_led(parselect, 0);
+static void ui_apply(void) {
+    // event rate is f_tick / 8192 * (total_inc+extra_inc) / evt_inc
+    // where f_frames_per_second = f_tick / 8192
+    // f_tick = f_cpu / ticker_ticks
+    // T_frame = 1/f_frames_per_second = 8192 * ticker_ticks / f_cpu
+    // number_of_events_per_frame is (total_inc+extra_inc)  / evt_inc
+    // longest allowed frame is 52.4288 ms
+    // XXX: recalculate params for gemeric pattern
+    ticker_stop();
+    select_pattern(selected_pattern);
+    ticker_start(selected_ticker_ticks);
+}
 
-      if (k == 0x81) {
-          tm1638_set_led(parselect, 0);
-          parselect = 0;
-      }
 
-      if (k & KEY_PAR1) {
-          parselect = 1;
-      } else if (k & KEY_PAR2) {
-          parselect = 2;
-      } else if (k & KEY_PAR3) {
-          parselect = 3;
-      } else if (k & KEY_PAR4) {
-          parselect = 4;
-      } else if (k & KEY_PAR5) {
-          parselect = 5;
-      } else if (k & KEY_PAR6) {
-          parselect = 6;
-      }
+/**************************************************
+ * main ui interface, regulary called from main() *
+ **************************************************/
 
-      memset(buff, 0, sizeof(buff));
+void ui_check_event(void) {
+    uint8_t key,i;
+    char buff[10];
+    int increment;
 
-      if (parselect) {
-          snprintf(buff, 8, "Par%d:%u   ", parselect, pars[parselect-1]);
-          tm1638_put_string(0, buff);
-          tm1638_set_led(parselect, 1);
-      } else {
-          tm1638_put_string(0, "Pulser   ");
-      }
+    memset(buff, 0, sizeof(buff));
+
+    key = tm1638_read_keys();
+    if (!key) {
+        // no key pressed
+        keypress_timer = 0;
+        if (selected_param == -1) {
+            tm1638_put_string(0, (systick_seconds & 4) ? VERSION2 : VERSION1);
+        }
+        return;
+    }
+
+    // a key is pressed
+    if ((key == KEY_PREV) || (key == KEY_NEXT)) {
+        if (last_key == key) {
+            increment = 1;
+            if (keypress_timer > 512) {
+                increment = (keypress_timer * keypress_timer) >> (2*9);
+            }
+        }
+   } else {
+      increment = 0;
    }
+
+   switch (selected_param) {
+   case 1: // select pattern
+           if ((key == KEY_PREV) && (selected_pattern > 0)) {
+               selected_pattern--;
+               ui_apply(); // also recalculates!
+           }
+           if ((key == KEY_NEXT) && (selected_pattern < get_max_pattern_number())) {
+               selected_pattern++;
+               ui_apply(); // also recalculates!
+           }
+           tm1638_put_string(0, pattern_names[selected_pattern]);
+           break;
+   case 2: // select timebase
+           if ((key == KEY_PREV) && (selected_ticker_ticks > 72)) {
+               selected_ticker_ticks = max(72, selected_ticker_ticks - increment);
+               ui_apply(); // also recalculates!
+           }
+           if ((key == KEY_NEXT) && (selected_ticker_ticks < 65535)) {
+               selected_ticker_ticks = min(65535, selected_ticker_ticks + increment);
+               ui_apply(); // also recalculates!
+           }
+           snprintf(buff, 9, "%.2fus  ", selected_ticker_ticks / 72.0);
+           tm1638_put_string(0, buff);
+           break;
+   case 3: // select target events per channel per second
+           if (get_pattern_number() != 16) {
+              tm1638_put_string(0," --  -- ");
+           } else {
+              if (key == KEY_PREV) {
+                 selected_events = max(1, selected_events - increment);
+                 ui_apply(); // also recalculates!
+              }
+              if (key == KEY_NEXT) {
+                 selected_events = min(25600, selected_events + increment);
+                 ui_apply(); // also recalculates!
+              }
+              snprintf(buff, 9, "%d evts", selected_events);
+              tm1638_put_string(0, buff);
+           }
+           break;
+   case 4:
+   case 5:
+   case 6:
+   case -1:
+           tm1638_put_string(0," -- -- ");
+           break;
+   default:
+           snprintf(buff,9, "ERROR %d", selected_param);
+           tm1638_put_string(0, buff);
+   }
+
+    // any 'param-select key' pressed?
+    if (key & 0x7e) {
+        tm1638_set_led(selected_param, 0);
+    }
+
+    // PREV & NEXT
+    if (key == 0x81) {
+        tm1638_set_led(selected_param, 0);
+        selected_param = -1;
+    }
+
+    for (i=1; i<7; i++) {
+       if (key & (1<<i)) { // Key-select for param<i> pressed
+          selected_param = i;
+          tm1638_set_led(selected_param, 1); // also light led
+       }
+    }
 }
 

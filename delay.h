@@ -34,7 +34,9 @@
 
 #include <stdint.h>
 
-extern volatile uint32_t systick_millis;
+extern volatile uint16_t systick_millis;
+extern volatile uint32_t systick_seconds;
+extern volatile uint32_t keypress_timer;
 void delay(uint32_t ms);
 void setup_delay(void);
 

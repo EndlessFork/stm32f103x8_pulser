@@ -41,5 +41,13 @@ void select_pattern(int pattern);
 
 int fill_buffer(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 
+extern const char* pattern_names[];
+extern unsigned int generic_pattern_total_increments; // calculated
+extern unsigned int generic_pattern_event_increment; // >= (pgc==7)? 510 : 73
+extern unsigned int generic_pattern_extra_increment; // to make total_increments n$
+extern unsigned int generic_pattern_start_increment; // stored for next round
+extern uint8_t generic_pattern_channels; // 1 or 7
+extern uint8_t generic_pattern_interpolate_env; // if 1: linear interpolation, els$
+
 #endif
 

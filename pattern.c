@@ -53,11 +53,33 @@ static int slow_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 static int fast_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 static int walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 static int bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 
 typedef int(*fptr_t)(uint8_t *, uint32_t, uint32_t);
 
 static fptr_t current_pattern = &null_pattern;
 static int pattern_number = 0;
+
+const char* pattern_names[] = {
+	"  null  ",
+	"slow_reg",
+	"stupid 1",
+	"slow_rnd",
+	"med_reg ",
+	"rare_lin",
+	"bin-ctr ",
+	"med_lin ",
+	"stepShap",
+        "fast_rnd",
+	"fast_lin",
+	"fast_reg",
+	"stupid 2",
+	"stupid 3",
+	"walking ",
+	"bin_walk",
+	"generic"
+};
+
 
 static const fptr_t patterns[] = {
 /*0*/   &null_pattern,			// 0 evts/frame, 150us, 26Hz, 0evt/s
@@ -72,10 +94,11 @@ static const fptr_t patterns[] = {
 /*9*/   &fast_random_pattern,		// 2390 evts/frame, 30us, 32.55Hz->78K
 /*A*/   &fast_linear_shaped_pattern,	// 5237 evts/frame, 4.5us, 27.1Hz->142K
 /*B*/   &fast_regular_pattern,		// 8192 evts/frame, 4.5us, 27.1Hz->222K
-/*C*/   &stupid_pattern2,                // 7 evts/26frame, 150us, 26Hz
-/*D*/   &stupid_pattern3,                // 7 evts/frame, 150us, 26Hz->182evt/s
-/*E*/   &walking_pattern,                // 7 evts/frame, 150us, 26Hz->182evt/s
-/*E*/   &bin_walking_pattern                // 7 evts/frame, 150us, 26Hz->182evt/s
+/*C*/   &stupid_pattern2,               // 7 evts/26frame, 150us, 26Hz
+/*D*/   &stupid_pattern3,               // 7 evts/frame, 150us, 26Hz->182evt/s
+/*E*/   &walking_pattern,               // 7 evts/frame, 150us, 26Hz->182evt/s
+/*F*/   &bin_walking_pattern,           // 7 evts/frame, 150us, 26Hz->182evt/s
+/*G*/   &generic_pattern                // parameterized 1..8192 evts/frame
 };
 
 void select_pattern(int pattern) {
@@ -498,3 +521,83 @@ static int bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) 
    return 16384;
 }
 
+unsigned int generic_pattern_total_increments = 0; // calculated
+unsigned int generic_pattern_event_increment = 510; // >= (pgc==7)? 510 : 73
+unsigned int generic_pattern_extra_increment = 0; // to make total_increments not divisible by event_increment
+unsigned int generic_pattern_start_increment = 0; // stored for next round
+uint8_t generic_pattern_channels = 7; // 1 or 7
+uint8_t generic_pattern_interpolate_env = 1; // if 1: linear interpolation, else staircase
+
+static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   int rest = 32*256 - (int) ofs - (int) bufsize;
+   int pos = ofs;
+   int cenv; // current env value
+   int diff; // diff from current env point to next one
+   uint8_t v;
+
+   if(!generic_pattern_total_increments) {
+      // determine total increments
+      interp = 0;
+      ctr = 128;
+      for (pos = 0; pos < 32*256; pos++) {
+         if (!(bufsize & 0xff)) {
+            cenv = env[31 & (pos >> 8)];
+            diff = env[31 & (1+(pos >> 8))] -(int)cenv;
+         }
+         ctr += diff;
+         if (ctr >= 256) {
+            ctr-=256;
+            cenv++;
+         }
+         if (ctr < 0) {
+            ctr+=256;
+            cenv--;
+         }
+         generic_pattern_total_increments += cenv;
+      }
+      printf("Generic Pattern total increments are %u\n", generic_pattern_total_increments);
+   }
+
+   if (!bufsize) {
+      // check extra incr
+      if (generic_pattern_total_increments % generic_pattern_event_increment == 0) {
+         generic_pattern_extra_increment = 1 + generic_pattern_event_increment>>4;
+      } else {
+         generic_pattern_extra_increment = 0;
+      }
+      printf("Generic Pattern event increment is %u\n", generic_pattern_event_increment);
+      printf("Generic Pattern extra increment is %u\n", generic_pattern_extra_increment);
+   }
+
+   // normal operation
+   interp = generic_pattern_start_increment;
+   if(!ofs)
+      interp += generic_pattern_extra_increment; // Start-Of-Frame
+   cenv = env[31 & (pos >> 8)];
+   diff = env[31 & (1+(pos >> 8))] -(int)cenv;
+   for(;bufsize;bufsize--) {
+      if (!(bufsize & 0xff)) {
+         cenv = env[31 & (pos >> 8)];
+         diff = env[31 & (1+(pos >> 8))] -(int)cenv;
+      }
+      ctr += diff;
+      if (ctr >= 256) {
+         ctr-=256;
+         cenv++;
+      }
+      if (ctr < 0) {
+         ctr+=256;
+         cenv--;
+      }
+      v = 0;
+      interp += cenv;
+      if (interp >= generic_pattern_event_increment) {
+         interp -= generic_pattern_event_increment;
+         v = 0x7f; // 7 channel mode
+      }
+      *buffer++=v;
+      pos++;
+   }
+   generic_pattern_start_increment = interp;
+   return rest;
+}

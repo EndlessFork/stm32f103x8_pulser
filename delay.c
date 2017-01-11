@@ -37,22 +37,28 @@
 /*
  * delay via systick (1KHz)
  */
-volatile uint32_t systick_millis = 0;
+volatile uint16_t systick_millis = 0;
+volatile uint32_t systick_seconds = 0;
+volatile uint32_t keypress_timer = 0;
 volatile uint32_t systick_delay_ctr = 0;
-volatile uint8_t systick_usbcdc_timeout_ctr = 0;
 
 void sys_tick_handler(void);
 void sys_tick_handler(void) {
    systick_millis++;
+   if (systick_millis == 1000) {
+      systick_millis = 0;
+      systick_seconds++;
+   }
    if (systick_delay_ctr)
       systick_delay_ctr--;
-   if (systick_usbcdc_timeout_ctr)
-      systick_usbcdc_timeout_ctr--;
+
+   if (keypress_timer)
+      keypress_timer++; // sic!
 }
 
 void delay(uint32_t ms) {
-   uint32_t target = systick_millis + ms;
-   while (systick_millis != target) {
+   systick_delay_ctr = ms;
+   while (systick_delay_ctr) {
       asm("nop");
    }
 }

@@ -54,10 +54,6 @@
 #define DMA_IRQ      dma1_channel2_isr
 #define DMA_NVIC_IRQ NVIC_DMA1_CHANNEL2_IRQ
 
-#define SWITCHES_PORT GPIOB
-#define SWITCHES_PINS (GPIO3|GPIO4|GPIO5|GPIO6|GPIO7|GPIO8|GPIO9|GPIO10)
-#define SWITCHES_RCC RCC_GPIOB
-
 #define LED_PORT GPIOC
 #define LED_PIN  GPIO13
 #define LED_RCC  RCC_GPIOC
@@ -67,14 +63,10 @@
 #define BUFFER_SIZE (2*HALF_BUFFER_SIZE)
 
 #define F_CPU 72000000
-//#define MAX_REPEAT_USECS 52428
-#define MAX_REPEAT_USECS 40000
+#define MAX_REPEAT_USECS 52428
+//#define MAX_REPEAT_USECS 40000
 #define MIN_REPEAT 256
 
 extern uint8_t output_buffer[2][HALF_BUFFER_SIZE];
-
-//#define USE_USBCDC
-//#define USE_USART1
-//#define USE_STLINKY
 
 #endif
