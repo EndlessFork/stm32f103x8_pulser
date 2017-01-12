@@ -42,6 +42,8 @@ void select_pattern(int pattern);
 int fill_buffer(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 
 extern const char* pattern_names[];
+extern uint32_t pattern_period;
+
 extern unsigned int generic_pattern_total_increments; // calculated
 extern unsigned int generic_pattern_event_increment; // >= (pgc==7)? 510 : 73
 extern unsigned int generic_pattern_extra_increment; // to make total_increments n$

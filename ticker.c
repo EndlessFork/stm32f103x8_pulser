@@ -56,6 +56,7 @@
 uint32_t pattern_repeat = 0;
 static uint32_t pattern_offset = 0; // offset to be used for next call
 uint32_t period_us;
+uint32_t timer_ticks;
 
 static void timer_setup(int _timer_ticks) {
    int presc=1;
@@ -69,6 +70,7 @@ static void timer_setup(int _timer_ticks) {
          _timer_ticks /= 2;
       }
    }
+   timer_ticks = presc * _timer_ticks; // remember actual value
 
    rcc_periph_clock_enable(TIMER_RCC);
 
@@ -114,6 +116,7 @@ static void dma_setup(void) {
    // no enable_channel yet!
 }
 
+
 void DMA_IRQ(void) {
    if (dma_get_interrupt_flag(DMA_UNIT, DMA_CHANNEL, DMA_TCIF)) {
       // transfer complete interrupt -> recalculate second block + re-enable dma
@@ -128,7 +131,8 @@ void DMA_IRQ(void) {
    };
 }
 
-void setup_ticker(void) {
+
+void ticker_init(void) {
    rcc_periph_clock_enable(OUTPUT_RCC);
 
    // PX0..7 -> Pulses via DMA
@@ -139,41 +143,40 @@ void setup_ticker(void) {
    gpio_clear(OUTPUT_PORT, OUTPUT_PINS);
 }
 
-uint32_t timer_ticks;
+
 void ticker_start(int requested_ticker) {
    // figure out values from currently active pattern...
    pattern_repeat = fill_buffer(NULL, 0, 0);
    pattern_offset = 0;
 
    if (!pattern_repeat) {
-      // can stretch, use 10us as time base and one buffer for pattern_repeat
-//      pattern_repeat = HALF_BUFFER_SIZE;
       pattern_repeat = MIN_REPEAT;
+      timer_ticks = 720;
    }
 
-   // find timer freq so that period in usecs is just shorter than MAX_pattern_repeat_USECS
-   timer_ticks = MAX_REPEAT_USECS * (F_CPU/1000000UL) / pattern_repeat;
+   // find timer freq so that period in usecs is just shorter than MAX_FRAME_TIME
+   timer_ticks = MAX_FRAME_TIME * (F_CPU/1000000UL) / pattern_repeat;
 
    // second approch: use 1-2-5 scaling of basic timer ticks (72)
    period_us = pattern_repeat; // start with 1usec per tick
    timer_ticks = (F_CPU / 1000000UL);
-   while (period_us * 10UL < MAX_REPEAT_USECS) {
+   while (period_us * 10UL < MAX_FRAME_TIME) {
       period_us *= 10;
       timer_ticks *= 10;
    }
-   if (period_us * 5UL < MAX_REPEAT_USECS) {
+   if (period_us * 5UL < MAX_FRAME_TIME) {
       period_us *= 5;
       timer_ticks *= 5;
    }
-   if (period_us * 3UL < MAX_REPEAT_USECS) {
+   if (period_us * 3UL < MAX_FRAME_TIME) {
       period_us *= 3;
       timer_ticks *= 3;
    }
-   if (period_us * 2UL < MAX_REPEAT_USECS) {
+   if (period_us * 2UL < MAX_FRAME_TIME) {
       period_us *= 2;
       timer_ticks *= 2;
    }
-   if (period_us + (period_us >> 1) < MAX_REPEAT_USECS) {
+   if (period_us + (period_us >> 1) < MAX_FRAME_TIME) {
       period_us += period_us >> 1;
       timer_ticks += timer_ticks >> 1;
    }
@@ -194,6 +197,7 @@ void ticker_start(int requested_ticker) {
    dma_enable_channel(DMA_UNIT, DMA_CHANNEL);
    timer_enable_counter(TIMER);
 }
+
 
 void ticker_stop(void) {
    timer_disable_counter(TIMER);

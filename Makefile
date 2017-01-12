@@ -5,11 +5,13 @@ LDSCRIPT = stm32f103c8.ld
 OOCD_INTERFACE = stlink-v2-1
 OOCD_BOARD = st_nucleo_f103rb
 
-
 LIBNAME         = opencm3_stm32f1
 DEFS            += -DSTM32F1
 
-FP_FLAGS        ?= -msoft-float
+CFLAGS		+= -O2 -g3
+#LDFLAGS		+= -Wl,--print-gc-sections
+
+FP_FLAGS        ?= -msoft-float -mfloat-abi=soft
 ARCH_FLAGS      = -mthumb -mcpu=cortex-m3 $(FP_FLAGS) -mfix-cortex-m3-ldrd
 
 STLINK_PORT    ?= :4242
@@ -18,6 +20,8 @@ SRCS = $(wildcard *.c)
 OBJS = $(SRCS:.c=.o)
 
 include Makefile.include
+
+LDFLAGS += -lm
 
 # compile all .c files for our project
 SRCS = $(wildcard *.c)

@@ -63,8 +63,8 @@
 #define BUFFER_SIZE (2*HALF_BUFFER_SIZE)
 
 #define F_CPU 72000000
-#define MAX_REPEAT_USECS 52428
-//#define MAX_REPEAT_USECS 40000
+#define MAX_FRAME_TIME 52428
+//#define MAX_FRAME_TIME 40000
 #define MIN_REPEAT 256
 
 extern uint8_t output_buffer[2][HALF_BUFFER_SIZE];

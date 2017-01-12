@@ -39,11 +39,15 @@
 //#include "usbcdc.h"
 #include "usart.h"
 
+#include "ui.h"
+
 #include <libopencm3/cm3/cortex.h>
 
 // for printf
 #include <stdio.h>
 #include <errno.h>
+
+#include <math.h>
 
 // playing around....
 void hard_fault_handler(void);
@@ -66,7 +70,7 @@ void setup(void) {
    setup_led();
    usart_init();
    select_pattern(0);
-   setup_ticker();
+   ticker_init();
    ticker_start(0);
    ui_init();
 }

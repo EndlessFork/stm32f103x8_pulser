@@ -37,6 +37,9 @@
 // for memset
 #include <string.h>
 
+// for debug printf
+#include <stdio.h>
+
 static int null_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 static int stupid_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 static int stupid_pattern2(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
@@ -121,38 +124,38 @@ int get_pattern_number(void) {
  * if bufsize is 0: return the repeat period or 0 if it can stretch to any
  * if ofs==0, also generate refclock pulse
  */
-static uint32_t period = 0;
+uint32_t pattern_period = 0;
 int fill_buffer(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
    uint32_t basepos=0, remaining=bufsize;
    // querying period -> remember period and return
    if(!bufsize) {
-      period = (*current_pattern)(buffer, bufsize, ofs);
+      pattern_period = (*current_pattern)(buffer, bufsize, ofs);
       // default stretchable to period MIN_REPEAT
-      if (!period)
-         period = MIN_REPEAT;
-      return period;
+      if (!pattern_period)
+         pattern_period = MIN_REPEAT;
+      return pattern_period;
    }
 
    // We have to fill the buffer
    while(remaining) {
       // safeguard: should not be needed
-      while (ofs >= period)
-         ofs -= period;
-      if (remaining+ofs >= period) {
+      while (ofs >= pattern_period)
+         ofs -= pattern_period;
+      if (remaining + ofs >= pattern_period) {
          // would 'underflow', fill in the remaining bytes and restart
-         (*current_pattern)(buffer+basepos, period - ofs, ofs);
+         (*current_pattern)(buffer + basepos, pattern_period - ofs, ofs);
          // set refclock marker on first byte in first block (bufsize!=0, ofs==0)
          if (!ofs)
-            *(buffer+basepos) |= 0x80;
-         remaining -= period-ofs;
-         basepos += period-ofs;
+            *(buffer + basepos) |= 0x80;
+         remaining -= pattern_period - ofs;
+         basepos += pattern_period - ofs;
          ofs = 0; // restart from 0
       } else {
          // snip out a piece of pattern to fill the buffer
-         (*current_pattern)(buffer+basepos, remaining, ofs);
+         (*current_pattern)(buffer + basepos, remaining, ofs);
          // set refclock marker on first byte in first block (bufsize!=0, ofs==0)
          if (!ofs)
-            *(buffer+basepos) |= 0x80;
+            *(buffer + basepos) |= 0x80;
          basepos += remaining;
          ofs += remaining;
          remaining = 0;
@@ -522,8 +525,8 @@ static int bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) 
 }
 
 unsigned int generic_pattern_total_increments = 0; // calculated
-unsigned int generic_pattern_event_increment = 510; // >= (pgc==7)? 510 : 73
-unsigned int generic_pattern_extra_increment = 0; // to make total_increments not divisible by event_increment
+unsigned int generic_pattern_event_increment = 8058; // >= (pgc==7)? 510 : 73
+unsigned int generic_pattern_extra_increment = 1; // to make total_increments not divisible by event_increment
 unsigned int generic_pattern_start_increment = 0; // stored for next round
 uint8_t generic_pattern_channels = 7; // 1 or 7
 uint8_t generic_pattern_interpolate_env = 1; // if 1: linear interpolation, else staircase
@@ -558,10 +561,15 @@ static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
       printf("Generic Pattern total increments are %u\n", generic_pattern_total_increments);
    }
 
+   if (generic_pattern_event_increment < 510) {
+      generic_pattern_event_increment = 510;
+   }
+
    if (!bufsize) {
       // check extra incr
-      if (generic_pattern_total_increments % generic_pattern_event_increment == 0) {
-         generic_pattern_extra_increment = 1 + generic_pattern_event_increment>>4;
+      if ((generic_pattern_total_increments % generic_pattern_event_increment == 0) || \
+          ((generic_pattern_total_increments & generic_pattern_event_increment & 1) == 0)) {
+         generic_pattern_extra_increment = 1;
       } else {
          generic_pattern_extra_increment = 0;
       }

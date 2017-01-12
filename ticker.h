@@ -38,7 +38,7 @@
 extern uint32_t pattern_repeat;
 extern uint32_t timer_ticks;
 
-void setup_ticker(void);
+void ticker_init(void);
 void ticker_start(int requested_ticker_us);
 void ticker_stop(void);
 
