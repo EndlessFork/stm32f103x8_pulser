@@ -22,11 +22,11 @@
 #endif
 
 #ifndef TM1638_DIO_PIN
-#define TM1638_DIO_PIN GPIO12
+#define TM1638_DIO_PIN GPIO14
 #endif
 
 #ifndef TM1638_STB_PIN
-#define TM1638_STB_PIN GPIO14
+#define TM1638_STB_PIN GPIO12
 #endif
 
 

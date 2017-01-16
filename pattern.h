@@ -26,7 +26,7 @@
  *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
  *  Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>.
  *
- *  Copyright (C) 2016 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
+ *  Copyright (C) 2016-2017 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
  *
  *****************************************************************************/
 
@@ -35,14 +35,14 @@
 
 #include <stdint.h>
 
-int get_max_pattern_number(void);
-int get_pattern_number(void);
-void select_pattern(int pattern);
+uint8_t get_max_pattern_number(void);
+uint8_t get_pattern_number(void);
+void pattern_select(uint8_t pattern);
 
 int fill_buffer(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 
-extern const char* pattern_names[];
-extern uint32_t pattern_period;
+char* pattern_get_name(void);
+uint32_t pattern_get_period(void);
 
 extern unsigned int generic_pattern_total_increments; // calculated
 extern unsigned int generic_pattern_event_increment; // >= (pgc==7)? 510 : 73

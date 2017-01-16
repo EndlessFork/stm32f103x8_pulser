@@ -26,7 +26,7 @@
  *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
  *  Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>.
  *
- *  Copyright (C) 2016 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
+ *  Copyright (C) 2016-2017 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
  *
  *****************************************************************************/
 
@@ -48,7 +48,7 @@
 #include "ui.h"
 
 #define VERSION1 " Pulser "
-#define VERSION2 "12.01.2017"
+#define VERSION2 "16.01.2017"
 
 #define KEY_PREV 1
 #define KEY_PAR1 2
@@ -77,8 +77,8 @@ static uint8_t last_key;
 
 static uint32_t frames_per_hundred_s=1000; // frames per 100 s
 
-// patterns 0..15 have 2 params : timer_ticks, frame_length
-// pattern 16 is dynamic mode: single channel/7channel, events/channel*frame
+// patterns 0..N-1 have 2 params : timer_ticks, frame_length
+// pattern N is dynamic mode: single channel/7channel, events/channel*frame
 
 static void ui_apply(void) {
     uint32_t t_frame_us;
@@ -91,7 +91,7 @@ static void ui_apply(void) {
     // longest allowed frame is 52.4288 ms
     // XXX: recalculate params for gemeric pattern
     do {
-       t_frame_us = pattern_period * selected_timer_ticks / 72;
+       t_frame_us = pattern_get_period() * selected_timer_ticks / 72;
        if (t_frame_us <= MAX_FRAME_TIME) {
            break;
        }
@@ -100,7 +100,7 @@ static void ui_apply(void) {
 
     if (selected_timer_ticks < 72) {
        selected_timer_ticks = 72;
-       t_frame_us = pattern_period * selected_timer_ticks / 72;
+       t_frame_us = pattern_get_period() * selected_timer_ticks / 72;
     }
 
     // calculate event_increment for requested event rate
@@ -124,7 +124,7 @@ static void ui_apply(void) {
         generic_pattern_extra_increment = 0;
     }
 
-        if (selected_pattern == 16) {
+        if (selected_pattern == get_max_pattern_number()) {
            printf("Total increments: %d\n", generic_pattern_total_increments);
            printf("Event increment:  %d\n", generic_pattern_event_increment);
            printf("Extra increment: %d\n", generic_pattern_extra_increment);
@@ -132,8 +132,8 @@ static void ui_apply(void) {
     if ((timer_ticks != selected_timer_ticks) || (get_pattern_number() != selected_pattern)) {
         printf("ticker_stop\n");
         ticker_stop();
-        printf("select_pattern %d (%s)\n", selected_pattern, pattern_names[selected_pattern]);
-        select_pattern(selected_pattern);
+        pattern_select(selected_pattern);
+        printf("pattern_select %d (%s)\n", selected_pattern, pattern_get_name());
         printf("ticker_start(%d)\n", selected_timer_ticks);
         ticker_start(selected_timer_ticks);
     }
@@ -151,7 +151,7 @@ void ui_check_event(void) {
 
     memset(buff, 0, sizeof(buff));
 
-    frames_per_hundred_s = 72e8 / (pattern_period * selected_timer_ticks);
+    frames_per_hundred_s = 72e8 / (pattern_get_period() * selected_timer_ticks);
 
     key = tm1638_read_keys();
     if (!key) {
@@ -189,14 +189,14 @@ void ui_check_event(void) {
                selected_pattern--;
                ui_apply(); // also recalculates!
            }
-           if ((key == KEY_NEXT) && (selected_pattern < get_max_pattern_number()-1)) {
+           if ((key == KEY_NEXT) && (selected_pattern < get_max_pattern_number())) {
                selected_pattern++;
                ui_apply(); // also recalculates!
            }
            if (key == KEY_PAR1) {
                tm1638_put_string(0, "Pattern ");
            } else {
-               tm1638_put_string(0, (char*) pattern_names[selected_pattern]);
+               tm1638_put_string(0, (char*) pattern_get_name());
            }
            break;
    case 2: // select timebase as T_basetick in us (>=1.0)
@@ -244,7 +244,7 @@ void ui_check_event(void) {
            }
            break;
    case 4: // select target events per channel per frame (display as per second!)
-           if (get_pattern_number() != 16) {
+           if (get_pattern_number() != get_max_pattern_number()) {
               tm1638_put_string(0," --  -- ");
            } else {
               selected_frame_events = generic_pattern_total_increments / generic_pattern_event_increment;
@@ -263,7 +263,7 @@ void ui_check_event(void) {
                  ui_apply(); // also recalculates!
               }
               if (key == KEY_PAR4) {
-                  tm1638_put_string(0, (systick_seconds & 1)?"evts per":" frame  ");
+                  tm1638_put_string(0, (systick_seconds & 1)?"evts per":"ch frame");
               } else {
                   i = selected_frame_events * frames_per_hundred_s;
                   snprintf(buff, 10, "%d per s ", i/100);

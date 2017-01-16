@@ -26,7 +26,7 @@
  *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
  *  Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>.
  *
- *  Copyright (C) 2016 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
+ *  Copyright (C) 2016-2017 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
  *
  *****************************************************************************/
 
@@ -69,7 +69,7 @@ void setup(void) {
    setup_delay();
    setup_led();
    usart_init();
-   select_pattern(0);
+   pattern_select(0);
    ticker_init();
    ticker_start(0);
    ui_init();

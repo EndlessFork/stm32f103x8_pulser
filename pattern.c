@@ -26,7 +26,7 @@
  *  Sie sollten eine Kopie der GNU General Public License zusammen mit diesem
  *  Programm erhalten haben. Wenn nicht, siehe <http://www.gnu.org/licenses/>.
  *
- *  Copyright (C) 2016 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
+ *  Copyright (C) 2016-2017 Enrico Faulhaber <enrico.faulhaber@frm2.tum.de>
  *
  *****************************************************************************/
 
@@ -40,119 +40,107 @@
 // for debug printf
 #include <stdio.h>
 
-static int null_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int stupid_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int stupid_pattern2(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int stupid_pattern3(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int binary_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int slow_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int medium_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int fast_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int step_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int fast_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int medium_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int rare_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int slow_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int fast_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
-static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+typedef void(*fptr_t)(uint8_t *, uint32_t, uint32_t);
 
-typedef int(*fptr_t)(uint8_t *, uint32_t, uint32_t);
+typedef struct {
+char *name;
+fptr_t generate;
+uint32_t period;
+} pattern_t;
 
-static fptr_t current_pattern = &null_pattern;
-static int pattern_number = 0;
+static void null_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void stupid_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void stupid_pattern2(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void stupid_pattern3(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void binary_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void slow_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void medium_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void fast_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void step_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void fast_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void medium_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void rare_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void slow_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void fast_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
+static void generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs);
 
-const char* pattern_names[] = {
-	"  null  ",
-	"slow_reg",
-	"stupid 1",
-	"slow_rnd",
-	"med_reg ",
-	"rare_lin",
-	"bin-ctr ",
-	"med_lin ",
-	"stepShap",
-        "fast_rnd",
-	"fast_lin",
-	"fast_reg",
-	"stupid 2",
-	"stupid 3",
-	"walking ",
-	"bin_walk",
-	"generic"
+static uint8_t pattern_number = 0;
+
+pattern_t patterns[] = {
+/*0*/   {"  null  ", null_pattern, .period=256},           // 0 evts/frame, 150us, 26Hz, 0evt/s
+/*1*/   {"slow_reg", slow_regular_pattern, 256},           // 3 evts/frame, 150us, 26Hz->78evt/s
+/*2*/   {"stupid 1", stupid_pattern, 256},                 // 7 evts/frame, 150us, 26Hz->182evt/s
+/*C*/   {"stupid 2", stupid_pattern2, 8192},               // 7 evts/26frame, 150us, 26Hz
+/*D*/   {"stupid 3", stupid_pattern3, 8192},               // 7 evts/frame, 150us, 26Hz->182evt/s
+/*E*/   {"walking ", walking_pattern, 8192},               // 7 evts/frame, 150us, 26Hz->182evt/s
+/*F*/   {"bin_walk", bin_walking_pattern, 8192},           // 7 evts/frame, 150us, 26Hz->182evt/s
+/*3*/ //  {"slow_rnd", slow_random_pattern, 128},            // 53 evts/frame, 300us, 26Hz->1378evt/s
+/*4*/   {"med_reg ", medium_regular_pattern, 2048},        // 120 evts/frame, 15us, 32.55Hz->4K
+/*5*/   {"rare_lin", rare_linear_shaped_pattern, 8192},    // 226 evts/frame, 4.5us, 27.125Hz->6K
+/*6*/   {"bin-ctr ", binary_pattern, 256},                 // 254 evts/frame, 150us, 26Hz->6K6
+/*7*/   {"med_lin ", medium_linear_shaped_pattern, 8192},  // 711 evts/frame, 4.5us, 27.125Hz->19K
+/*8*/   {"stepShap", step_shaped_pattern, 8192},           // 1580 evts/frame, 4.5us, 27.1Hz->43K
+/*9*/ //  {"fast_rnd", fast_random_pattern, 1024},           // 2390 evts/frame, 30us, 32.55Hz->78K
+/*A*/   {"fast_lin", fast_linear_shaped_pattern, 8192},    // 5237 evts/frame, 4.5us, 27.1Hz->142K
+/*B*/   {"fast_reg", fast_regular_pattern, 8192},          // 8192 evts/frame, 4.5us, 27.1Hz->222K
+/*G*/   {"generic ", generic_pattern, 8192},               // parameterized 1..8192 evts/frame
 };
 
+char* pattern_get_name(void) {
+    return patterns[pattern_number].name;
+}
 
-static const fptr_t patterns[] = {
-/*0*/   &null_pattern,			// 0 evts/frame, 150us, 26Hz, 0evt/s
-/*1*/   &slow_regular_pattern,		// 3 evts/frame, 150us, 26Hz->78evt/s
-/*2*/   &stupid_pattern,                // 7 evts/frame, 150us, 26Hz->182evt/s
-/*3*/   &slow_random_pattern,		// 53 evts/frame, 300us, 26Hz->1378evt/s
-/*4*/   &medium_regular_pattern,	// 120 evts/frame, 15us, 32.55Hz->4K
-/*5*/   &rare_linear_shaped_pattern,	// 226 evts/frame, 4.5us, 27.125Hz->6K
-/*6*/   &binary_pattern,		// 254 evts/frame, 150us, 26Hz->6K6
-/*7*/   &medium_linear_shaped_pattern,	// 711 evts/frame, 4.5us, 27.125Hz->19K
-/*8*/   &step_shaped_pattern,		// 1580 evts/frame, 4.5us, 27.1Hz->43K
-/*9*/   &fast_random_pattern,		// 2390 evts/frame, 30us, 32.55Hz->78K
-/*A*/   &fast_linear_shaped_pattern,	// 5237 evts/frame, 4.5us, 27.1Hz->142K
-/*B*/   &fast_regular_pattern,		// 8192 evts/frame, 4.5us, 27.1Hz->222K
-/*C*/   &stupid_pattern2,               // 7 evts/26frame, 150us, 26Hz
-/*D*/   &stupid_pattern3,               // 7 evts/frame, 150us, 26Hz->182evt/s
-/*E*/   &walking_pattern,               // 7 evts/frame, 150us, 26Hz->182evt/s
-/*F*/   &bin_walking_pattern,           // 7 evts/frame, 150us, 26Hz->182evt/s
-/*G*/   &generic_pattern                // parameterized 1..8192 evts/frame
-};
+uint32_t pattern_get_period(void) {
+    return patterns[pattern_number].period;
+}
 
-void select_pattern(int pattern) {
+void pattern_select(uint8_t pattern) {
    pattern_number = \
-      (((unsigned int) pattern) < (sizeof(patterns)/sizeof(patterns[0])))?
+      (((unsigned int) pattern) <= (get_max_pattern_number()))?
       pattern : 0;
-   current_pattern = patterns[pattern_number];
 }
 
-int get_max_pattern_number(void) {
-   return (sizeof(patterns)/sizeof(patterns[0]));
+uint8_t get_max_pattern_number(void) {
+   return (sizeof(patterns)/sizeof(pattern_t))-1;
 }
 
-int get_pattern_number(void) {
+uint8_t get_pattern_number(void) {
    return pattern_number;
 }
 
 /*
  * fill buffer with data and return offset to be used for next call
- * if bufsize is 0: return the repeat period or 0 if it can stretch to any
+ * if bufsize is 0: return the repeat period
  * if ofs==0, also generate refclock pulse
  */
-uint32_t pattern_period = 0;
 int fill_buffer(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   uint32_t basepos=0, remaining=bufsize;
-   // querying period -> remember period and return
+   pattern_t *current_pattern = &patterns[pattern_number];
+   uint32_t basepos=0, remaining=bufsize, period = current_pattern->period;
+
    if(!bufsize) {
-      pattern_period = (*current_pattern)(buffer, bufsize, ofs);
-      // default stretchable to period MIN_REPEAT
-      if (!pattern_period)
-         pattern_period = MIN_REPEAT;
-      return pattern_period;
+      // period should be at least MIN_REPEAT !!!
+      return (period >= MIN_REPEAT)?(period):(MIN_REPEAT);
    }
 
    // We have to fill the buffer
    while(remaining) {
       // safeguard: should not be needed
-      while (ofs >= pattern_period)
-         ofs -= pattern_period;
-      if (remaining + ofs >= pattern_period) {
+      while (ofs >= period)
+         ofs -= period;
+      if (remaining + ofs >= period) {
          // would 'underflow', fill in the remaining bytes and restart
-         (*current_pattern)(buffer + basepos, pattern_period - ofs, ofs);
+         current_pattern->generate(buffer + basepos, period - ofs, ofs);
          // set refclock marker on first byte in first block (bufsize!=0, ofs==0)
          if (!ofs)
             *(buffer + basepos) |= 0x80;
-         remaining -= pattern_period - ofs;
-         basepos += pattern_period - ofs;
+         remaining -= period - ofs;
+         basepos += period - ofs;
          ofs = 0; // restart from 0
       } else {
          // snip out a piece of pattern to fill the buffer
-         (*current_pattern)(buffer + basepos, remaining, ofs);
+         current_pattern->generate(buffer + basepos, remaining, ofs);
          // set refclock marker on first byte in first block (bufsize!=0, ofs==0)
          if (!ofs)
             *(buffer + basepos) |= 0x80;
@@ -168,14 +156,18 @@ int fill_buffer(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
 // patterns should only write to bits 0..6 of the buffer bytes !
 
 // null-pattern: no pulses anywhere
-static int null_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+// smalles sensible bufsize is 2
+static void null_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   (void) ofs; // silence compiler. no use for the ofs parameter...
    memset(buffer, 0, bufsize);
-   return 0*ofs; // smallest size is 1
 }
 
-// stupid-pattern: exactly one pulse close to beginning
-static int stupid_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+
+// stupid-pattern: exactly one pulse close to beginning (one pulse for each channel, but at a different time)
+// smallest sensible bufsize is 8
+static void stupid_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
    uint8_t m = (ofs) ? 0: 0x80;
+
    memset(buffer, 0, bufsize);
    while(bufsize) {
       *buffer++ = m;
@@ -183,14 +175,17 @@ static int stupid_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
       if(!m)
          break;
    }
-   return 0; // smallest size is 8
 }
 
+
 // stupid2-pattern: exactly one pulse in the middle, once every 32 frames
-static int stupid_pattern2(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+// smallest sensible bufsize is 2
+static void stupid_pattern2(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
    static uint_fast32_t m;
+
    if (!bufsize)
-      return 16384;
+      // safeguard
+      return;
    memset(buffer, 0, bufsize);
    if (!ofs) {
       if(!m)
@@ -198,40 +193,65 @@ static int stupid_pattern2(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
       buffer[bufsize/2] |= (m & 0x7f);
       m >>= 1;
    }
-   return 16384;
 }
+
+
+// stupid3-pattern: exactly one pulse close to beginning
+static void stupid_pattern3(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   uint32_t i;
+
+   memset(buffer, 0, bufsize);
+   for(i=ofs;i<bufsize+ofs;i++) {
+      if (i==1) {
+         // extend refclock
+         buffer[i] = 0x80;
+      }
+      if (i==3) { // XXX: make location a parameter? (could omit stupid2 as a variant of this)
+         // exactly one pulse
+         buffer[i] = 0x7f;
+         break;
+      }
+   }
+}
+
 
 // output a binary code
-static int binary_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+// only sensible bufsize is 256
+static void binary_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
    uint8_t val = 0x80 + ofs; // truncate upper bits of ofs!
-   int rest = 256 - (int) ofs - (int) bufsize;
-
+   
+   bufsize &= 0xff; // only fill up to 256 locations
    for(;bufsize;bufsize--)
       *buffer++ = val++;
-   return rest; // smalles size is 256
 }
 
+
 // output a regular pattern
-static uint8_t m=0, i=0;
-static int slow_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 256 - (int) ofs - (int) bufsize;
+// smallest sensible bufsize is 2
+static void slow_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint8_t m, i;
+
+   (void) ofs; // silence compiler. we rely on beeing called 'in-order', no use for ofs.
 
    for(;bufsize;bufsize--) {
       if (!i--) {
-         if (!m)
-             m = 0x40;
-         *buffer++ = m;
          m >>= 1;
-         i = 84;
+         if (!m) {
+             m = 0x40;
+         }
+         *buffer++ = m;
+         i = 84;  // XXX: selectable parameter? (generic pattern with constant env?)
       } else {
          *buffer++ = 0;
       }
    }
-   return rest;
 }
 
-static int medium_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 2048 - (int) ofs - (int) bufsize;
+
+static void medium_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint8_t m, i;
+
+   (void) ofs; // silence compiler. we rely on beeing called 'in-order', no use for ofs.
 
    for(;bufsize;bufsize--) {
       if (!i--) {
@@ -241,14 +261,16 @@ static int medium_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t of
          m >>= 1;
          i = 16;
       } else {
-         *buffer++ = 0;
+         *buffer++ = 0;  // XXX: selectable parameter? (generic pattern with constant env?)
       }
    }
-   return rest;
 }
 
-static int fast_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 8192 - (int) ofs - (int) bufsize;
+
+static void fast_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint8_t m;
+
+   (void) ofs; // silence compiler. we rely on beeing called 'in-order', no use for ofs.
 
    for(;bufsize;bufsize--) {
       if (!m)
@@ -256,10 +278,10 @@ static int fast_regular_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs)
       *buffer++ = m;
       m >>= 1;
    }
-   return rest;
 }
 
-// envelopes
+
+// envelope for a 'nice' histogram. needs to contain 33 values, first value == last value !
 static const uint8_t env[] = {
    0x00,
    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0xff,
@@ -274,30 +296,45 @@ static const uint8_t env[] = {
    0x00 // duplicate of first entry
 };
 
-static int interp = 128;
-static int step_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 32*256 - (int) ofs - (int) bufsize;
-   int pos=ofs;
-   uint8_t cenv; // current env value
 
+// divide the 8192 time slots into 32 slots a 256 times
+// frequency of events in each slot is given by env (0=no event, 255=max freq)
+// events are distributed over 7 channels (at env=255, every 7'th time an event is generated per channel)
+static void step_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static int interp; // interpolation counter
+   static uint8_t m;
+   int pos=ofs;
+   uint8_t cenv; // current envelope value
+
+   cenv = env[32 & (ofs >> 8)];
    for(;bufsize;bufsize--) {
-      cenv = env[31 & (pos / 256)];
+      if (!(pos & 0xff)) {
+         // first entry of next slot
+         cenv = env[31 & (pos >> 8)]; // obtain current frequency
+      }
       interp += cenv;
-      if (interp >= 255) {
-         interp-=255;
-         if (!m)
-             m = 0x40;
-         *buffer++ = m;
+      if (interp >= 255) { // XXX: make this configurable as in generic_pattern?
+         interp -= 255;
          m >>= 1;
-      } else *buffer++=0;
+         if (!m) {
+             m = 0x40;
+         }
+         *buffer++ = m;
+      } else {
+         *buffer++=0;
+      }
       pos++;
    }
-   return rest;
 }
 
-static int ctr=128; // linear interpolation counter
-static int fast_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 32*256 - (int) ofs - (int) bufsize;
+
+// XXX: make fast/medium/rare configurable!
+// similiar to step_shaped pattern, but do a linear interpolation of the envelope.
+// basically a variant of the generic_pattern with fixed events/frame and distribution to 7 channels
+static void fast_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static int ctr; // linear interpolation counter
+   static int interp; // interpolation counter
+   static uint8_t m;
    int pos=ofs;
    int cenv; // current env value
    int diff; // diff from current env point to next one
@@ -331,12 +368,13 @@ static int fast_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_
       *buffer++=v;
       pos++;
    }
-   return rest;
 }
 
 
-static int medium_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 32*256 - (int) ofs - (int) bufsize;
+static void medium_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static int ctr; // linear interpolation counter
+   static int interp; // interpolation counter
+   static uint8_t m;
    int pos=ofs;
    int cenv; // current env value
    int diff; // diff from current env point to next one
@@ -370,11 +408,13 @@ static int medium_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint3
       *buffer++=v;
       pos++;
    }
-   return rest;
 }
 
-static int rare_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 32*256 - (int) ofs - (int) bufsize;
+
+static void rare_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static int ctr; // linear interpolation counter
+   static int interp; // interpolation counter
+   static uint8_t m;
    int pos=ofs;
    int cenv; // current env value
    int diff; // diff from current env point to next one
@@ -408,13 +448,15 @@ static int rare_linear_shaped_pattern(uint8_t *buffer, uint32_t bufsize, uint32_
       *buffer++=v;
       pos++;
    }
-   return rest;
 }
 
+
 // output a random pattern
-static uint32_t r=0;
-static uint8_t last=0;
-static int slow_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+// dont use this at higher ticker frequencies, as this uses too much cpu-time
+// also seems not very useful atm.
+static void slow_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint32_t r;
+   static uint8_t last;
    ofs++;
    for(;bufsize;bufsize--) {
       r = _random();
@@ -422,10 +464,12 @@ static int slow_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) 
       r &= r >> 7;
       *buffer++ = last = (r & 0x7f) & ~last;
    }
-   return 128;
 }
 
-static int fast_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+
+static void fast_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint32_t r;
+   static uint8_t last;
    ofs++;
    for(;bufsize;bufsize--) {
       if (!r) {
@@ -434,74 +478,63 @@ static int fast_random_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) 
       *buffer++ = last = (r & 0x7f) & ~last;
       r >>= 8;
    }
-   return 1024;
-}
-
-// stupid3-pattern: exactly one pulse close to beginning
-static int stupid_pattern3(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int i;
-   memset(buffer, 0, bufsize);
-   for(i=0;i<bufsize;i++) {
-      if (i==1) {
-         buffer[i] = 0x80;
-      }
-//      if (i==2) {
-//         buffer[i] = 0x7f;
-//      }
-      if (i==3) {
-         buffer[i] = 0x7f;
-         break;
-      }
-   }
-   return 8192; // smallest size is 16
 }
 
 
 // walking-pattern
-static int walker=0;
-static int wcounts=0;
-static uint8_t wmask = 0x40;
-static int walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int i;
-   if (!bufsize)
-      return 16384;
+static void walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint32_t walker;
+   static uint32_t wcounts;
+   static uint8_t wmask;
+   uint32_t i;
+
+   (void) ofs; // we rely on beeing called 'in-order', hence no use for ofs.
+   if (!bufsize) {
+      // re-init
+      walker = 0;
+      wcounts = 0;
+      wmask = 0x40;
+      return;
+   }
 
    memset(buffer, 0, bufsize);
-   for (i=walker;i<bufsize; i+=1024) {
+   for (i=walker;i<bufsize; i+=1024) { // XXX: make walker distance configurable
+      wmask >>= 1;
+      if (!wmask) {
+         wmask = 0x40;
+      }
       buffer[i] = wmask;
       buffer[i+1] = wmask;
       buffer[i+2] = wmask;
-      wmask ^= 0x7f;
    }
-   if (++wcounts == 100000) {
+   if (++wcounts == 1000) { // XXX: make events_per_position configurable
       wcounts = 0;
       walker += 8;
       if (walker >= 1024) {
          walker -= 1024;
-         wmask ^= 0x7f;
       }
    }
-   return 16384;
 }
 
-#define TARGET_COUNTS_PER_BIN 100000
-//static int walker=0;
-//static int wcounts=0;
-//static uint8_t wmask = 0x40;
-static int bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int i;
+
+#define TARGET_COUNTS_PER_BIN 1000
+static void bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static uint32_t walker;
+   static uint32_t wcounts;
+   static uint8_t wmask;
+
    if (!bufsize) {
       // re-init
-      walker=0;
+      walker = 0;
       wcounts = 0;
       wmask = 0x40;
-      return 16384;
+      return;
    }
 
    memset(buffer, 0, bufsize);
    // early exit if walker walked too far...
-   if (walker >= 16384)
-      return 16384;
+   if (walker >= 8192)
+      return;
 
    // walker in currently requested piece: set it
    if ((ofs <= walker) && (walker < ofs+bufsize)) {
@@ -510,19 +543,22 @@ static int bin_walking_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) 
       // count events
       if (++wcounts == TARGET_COUNTS_PER_BIN) {
          wcounts = 0;
-         wmask ^= 0x7f; // flip to other module
-         if (wmask == 0x40) {
+         wmask >>=1; // flip to other module
+         if (!wmask) {
             // advance walker
             if (walker) {
-               walker*=2;
+               walker *= 2;
             } else {
                walker = 1;
             }
+            wmask = 0x40;
          }
       }
    }
-   return 16384;
 }
+
+// parametrized versions below this line....
+
 
 unsigned int generic_pattern_total_increments = 0; // calculated
 unsigned int generic_pattern_event_increment = 8058; // >= (pgc==7)? 510 : 73
@@ -531,10 +567,11 @@ unsigned int generic_pattern_start_increment = 0; // stored for next round
 uint8_t generic_pattern_channels = 7; // 1 or 7
 uint8_t generic_pattern_interpolate_env = 1; // if 1: linear interpolation, else staircase
 
-static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
-   int rest = 32*256 - (int) ofs - (int) bufsize;
-   int pos = ofs;
-   int cenv; // current env value
+static void generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
+   static int ctr; // linear interpolation counter
+   static int interp; // interpolation counter
+   uint32_t pos = ofs;
+   uint8_t cenv; // current env value
    int diff; // diff from current env point to next one
    uint8_t v;
 
@@ -559,6 +596,8 @@ static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
          generic_pattern_total_increments += cenv;
       }
       printf("Generic Pattern total increments are %u\n", generic_pattern_total_increments);
+      interp = 0;
+      ctr = 128;
    }
 
    if (generic_pattern_event_increment < 510) {
@@ -607,5 +646,4 @@ static int generic_pattern(uint8_t *buffer, uint32_t bufsize, uint32_t ofs) {
       pos++;
    }
    generic_pattern_start_increment = interp;
-   return rest;
 }
