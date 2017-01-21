@@ -119,9 +119,10 @@ static void dma_setup(void) {
 
 void DMA_IRQ(void) {
    if (dma_get_interrupt_flag(DMA_UNIT, DMA_CHANNEL, DMA_TCIF)) {
-      // transfer complete interrupt -> recalculate second block + re-enable dma
-      dma_disable_channel(DMA_UNIT, DMA_CHANNEL);
-      dma_enable_channel(DMA_UNIT, DMA_CHANNEL);
+      // transfer complete interrupt -> recalculate second block
+      // no need to re-enable dma!!! (may even corrupt timing!)
+      // dma_disable_channel(DMA_UNIT, DMA_CHANNEL);
+      // dma_enable_channel(DMA_UNIT, DMA_CHANNEL);
       dma_clear_interrupt_flags(DMA_UNIT, DMA_CHANNEL, DMA_TCIF | DMA_GIF);
       pattern_offset = fill_buffer(output_buffer[1], HALF_BUFFER_SIZE, pattern_offset);
    } else if (dma_get_interrupt_flag(DMA_UNIT, DMA_CHANNEL, DMA_HTIF)) {
